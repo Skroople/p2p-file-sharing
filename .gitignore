@@ -1,0 +1,7 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Project Logs
+download_log.txt
+upload_log_file.txt

@@ -61,8 +61,17 @@ class P2PApp(ctk.CTk):
         self.browse_btn = ctk.CTkButton(header_frame, text="Browse", width=100, height=40, fg_color="#4b4b4b", hover_color="#5b5b5b", font=ctk.CTkFont(weight="bold"), command=self.get_file)
         self.browse_btn.grid(row=2, column=2, padx=15, pady=8)
 
+        self.dl_path = os.getcwd()
+        ctk.CTkLabel(header_frame, text="Download Location:", font=ctk.CTkFont(size=13, weight="bold")).grid(row=3, column=0, padx=20, pady=8, sticky="w")
+        self.dl_path_ent = ctk.CTkEntry(header_frame, width=350, height=40, font=('Segoe UI', 12))
+        self.dl_path_ent.insert(0, self.dl_path)
+        self.dl_path_ent.grid(row=3, column=1, padx=5, pady=8)
+
+        self.dl_browse_btn = ctk.CTkButton(header_frame, text="Browse", width=100, height=40, fg_color="#4b4b4b", hover_color="#5b5b5b", font=ctk.CTkFont(weight="bold"), command=self.get_dl_dir)
+        self.dl_browse_btn.grid(row=3, column=2, padx=15, pady=8)
+
         btn_grid = ctk.CTkFrame(header_frame, fg_color="transparent")
-        btn_grid.grid(row=3, column=0, columnspan=3, pady=(15, 20), sticky="we")
+        btn_grid.grid(row=4, column=0, columnspan=3, pady=(15, 20), sticky="we")
         btn_grid.grid_columnconfigure((0,1), weight=1)
 
         self.start_btn = ctk.CTkButton(btn_grid, text="INITIALIZE SYSTEM", height=48, fg_color="#28a745", hover_color="#218838", font=ctk.CTkFont(size=14, weight="bold"), command=self.run_system)
@@ -116,17 +125,26 @@ class P2PApp(ctk.CTk):
             self.file_ent.delete(0, ctk.END)
             self.file_ent.insert(0, f)
 
+    def get_dl_dir(self):
+        d = filedialog.askdirectory()
+        if d:
+            self.dl_path = d
+            self.dl_path_ent.delete(0, ctk.END)
+            self.dl_path_ent.insert(0, d)
+
     def run_system(self):
         u, p = self.user_ent.get().strip(), self.file_ent.get().strip()
         if not u or not p:
             messagebox.showwarning("Warning", "Fields cannot be empty!")
             return
         try:
+            self.dl_path = self.dl_path_ent.get().strip() or os.getcwd()
             self.peer = PeerNode(username=u, file_path=p)
             self.peer.start()
             self.start_btn.configure(state="disabled", text="ONLINE", fg_color="#4b4b4b")
             self.stop_btn.configure(state="normal", fg_color="#dc3545")
             self.user_ent.configure(state="disabled"); self.file_ent.configure(state="disabled"); self.browse_btn.configure(state="disabled")
+            self.dl_path_ent.configure(state="disabled"); self.dl_browse_btn.configure(state="disabled")
             self.stat_msg.set(f"Online: {u}"); self.auto_update()
         except Exception as e: messagebox.showerror("Error", str(e))
 
@@ -135,6 +153,7 @@ class P2PApp(ctk.CTk):
         self.start_btn.configure(state="normal", text="INITIALIZE SYSTEM", fg_color="#28a745")
         self.stop_btn.configure(state="disabled", fg_color="#4b4b4b")
         self.user_ent.configure(state="normal"); self.file_ent.configure(state="normal"); self.browse_btn.configure(state="normal")
+        self.dl_path_ent.configure(state="normal"); self.dl_browse_btn.configure(state="normal")
         self.stat_msg.set("System Offline"); [self.tree.delete(i) for i in self.tree.get_children()]
 
     def auto_update(self):
@@ -167,11 +186,12 @@ class P2PApp(ctk.CTk):
                         data = self.peer._download_secure_chunk(ip, chunk_name) if is_secure else self.peer._download_unsecure_chunk(ip, chunk_name)
                         if data:
                             downloaded_data[chunk_name] = data
-                            with open(chunk_name, 'wb') as cf: cf.write(data)
+                            chunk_path = os.path.join(self.dl_path, chunk_name)
+                            with open(chunk_path, 'wb') as cf: cf.write(data)
                             success = True; break
                     except: continue
                 if not success: raise Exception(f"Failed {chunk_name}")
-            output_path = os.path.join(os.getcwd(), fname)
+            output_path = os.path.join(self.dl_path, fname)
             with open(output_path, 'wb') as f:
                 for key in sorted(downloaded_data.keys()): f.write(downloaded_data[key])
             self.stat_msg.set(f"Done: {fname}")

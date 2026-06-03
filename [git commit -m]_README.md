@@ -21,5 +21,3 @@ Known Limitations
 
 The application requires ports 6000 and 6001 to be strictly available. Running two instances on the same machine without using a VM or isolated network adapter will result in a TCP port collision.
 
-The system is designed for LAN environments and relies on UDP broadcast (192.168.1.255), meaning it will not discover peers across different subnets or over the public internet without a VPN/ZeroTier.
-

@@ -5,3 +5,8 @@ __pycache__/
 # Project Logs
 download_log.txt
 upload_log_file.txt
+
+# File Chunks
+*_1
+*_2
+*_3

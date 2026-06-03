@@ -10,6 +10,41 @@ import pyDes
 DH_PRIME = 907
 DH_BASE = 7
 
+def _get_broadcast_addr():
+    import platform, subprocess, re, struct
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(1)
+        s.connect(('8.8.8.8', 80))
+        ip = s.getsockname()[0]
+        s.close()
+
+        system = platform.system()
+        if system == 'Windows':
+            r = subprocess.run(['ipconfig'], capture_output=True, text=True, check=True)
+            for block in re.split(r'\n(?=\S)', r.stdout):
+                if ip not in block:
+                    continue
+                m = re.search(r'Subnet Mask[ .:]+(\d+\.\d+\.\d+\.\d+)', block)
+                if m:
+                    parts = list(map(int, m.group(1).split('.')))
+                    nm = (parts[0]<<24)|(parts[1]<<16)|(parts[2]<<8)|parts[3]
+                    ip_i = struct.unpack('>I', socket.inet_aton(ip))[0]
+                    return socket.inet_ntoa(struct.pack('>I', ip_i | (~nm & 0xffffffff)))
+        else:
+            r = subprocess.run(['ifconfig'], capture_output=True, text=True, check=True)
+            for m in re.finditer(r'inet (\S+) netmask (0x[0-9a-f]+) broadcast (\S+)', r.stdout):
+                if m.group(1) == ip:
+                    return m.group(3)
+            for m in re.finditer(r'inet (\S+) netmask (0x[0-9a-f]+)', r.stdout):
+                if m.group(1) == ip:
+                    nm = int(m.group(2), 16)
+                    ip_i = struct.unpack('>I', socket.inet_aton(ip))[0]
+                    return socket.inet_ntoa(struct.pack('>I', ip_i | (~nm & 0xffffffff)))
+    except:
+        pass
+    return '255.255.255.255'
+
 class PeerNode:
     def __init__(self, username=None, file_path=None):
         self.username = username or input("Enter your username: ").strip()
@@ -76,7 +111,7 @@ class PeerNode:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-        broadcast_addr = ('192.168.1.255', 6000)
+        broadcast_addr = (_get_broadcast_addr(), 6000)
 
         while self.running:
             chunk_names = [chunk[0] for chunk in self.chunks]

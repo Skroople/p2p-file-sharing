@@ -82,12 +82,11 @@ class PeerNode:
         if len(data) % 3 != 0:
             chunk_size += 1
 
-        base_name, _ = os.path.splitext(self.file_name)
         chunks = []
         for i in range(3):
             start = i * chunk_size
             end = start + chunk_size
-            chunk_name = f"{base_name}_{i + 1}"
+            chunk_name = f"{self.file_name}_{i + 1}"
             chunk_data = data[start:end]
             chunks.append((chunk_name, chunk_data))
             

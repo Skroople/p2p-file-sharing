@@ -222,9 +222,18 @@ class P2PApp(ctk.CTk):
     def open_logs(self):
         log_win = ctk.CTkToplevel(self); log_win.title("Logs"); log_win.geometry("600x450"); log_win.attributes("-topmost", True)
         txt = ctk.CTkTextbox(log_win, font=('Consolas', 11), corner_radius=10); txt.pack(fill="both", expand=True, padx=15, pady=15)
-        c = "=== LOGS ===\n"
+        c = "=== DOWNLOAD LOGS ===\n"
         if os.path.exists("download_log.txt"):
             with open("download_log.txt", "r") as f: c += f.read()
+        else:
+            c += "(No downloads yet)\n"
+            
+        c += "\n=== UPLOAD LOGS ===\n"
+        if os.path.exists("upload_log.txt"):
+            with open("upload_log.txt", "r") as f: c += f.read()
+        else:
+            c += "(No uploads yet)\n"
+            
         txt.insert("1.0", c); txt.configure(state="disabled")
 
     def on_closing(self):

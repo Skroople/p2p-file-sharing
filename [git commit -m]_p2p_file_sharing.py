@@ -72,7 +72,7 @@ class PeerNode:
         self.threads = []
 
         self.download_log_file = "download_log.txt"
-        self.upload_log_file = "upload_log_file.txt"
+        self.upload_log_file = "upload_log.txt"
 
     def _split_file_into_chunks(self):
         with open(self.file_path, 'rb') as f:

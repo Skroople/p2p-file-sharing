@@ -2,6 +2,7 @@ import customtkinter as ctk
 from tkinter import messagebox, filedialog, ttk
 import threading
 import os
+import time
 
 import importlib.util
 _backend_path = os.path.join(os.path.dirname(__file__), '[git commit -m]_p2p_file_sharing.py')
@@ -17,12 +18,8 @@ class P2PApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("P2P File Sharing System - CMP2204")
-        
-        screen_height = self.winfo_screenheight()
-        if screen_height < 900:
-            self.geometry("820x700")
-        else:
-            self.geometry("850x780")
+        self.geometry("750x600")
+        self.minsize(600, 500)
             
         self.peer = None
         self.setup_treeview_style()
@@ -80,27 +77,21 @@ class P2PApp(ctk.CTk):
         self.stop_btn = ctk.CTkButton(btn_grid, text="STOP SYSTEM", height=48, fg_color="#4b4b4b", hover_color="#dc3545", font=ctk.CTkFont(size=14, weight="bold"), state="disabled", command=self.stop_system)
         self.stop_btn.grid(row=0, column=1, padx=(10, 20), sticky="we")
 
+        bottom_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
+        bottom_frame.pack(side="bottom", fill="x", padx=10, pady=(0, 10))
+
+        self.stat_msg = ctk.StringVar(value="System Ready")
+        ctk.CTkLabel(bottom_frame, textvariable=self.stat_msg, text_color="gray", font=('Segoe UI', 11)).pack(side="left", padx=10)
+
+        ctk.CTkButton(bottom_frame, text="View Logs", width=120, height=32, fg_color="transparent", border_width=1, text_color="gray", command=self.open_logs).pack(side="right", padx=10)
+
         list_frame = ctk.CTkFrame(self.main_container, corner_radius=12)
-        list_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        list_frame.pack(side="top", fill="both", expand=True, padx=10, pady=10)
 
         ctk.CTkLabel(list_frame, text="Network Content Discovery", font=ctk.CTkFont(size=17, weight="bold")).pack(anchor="w", padx=20, pady=(15, 5))
 
-        tree_container = ctk.CTkFrame(list_frame, fg_color="transparent")
-        tree_container.pack(fill="both", expand=True, padx=20, pady=5)
-
-        self.tree = ttk.Treeview(tree_container, columns=("Content", "Status"), show='headings')
-        self.tree.heading("Content", text="File Name")
-        self.tree.heading("Status", text="Availability Status")
-        self.tree.column("Content", width=400)
-        self.tree.column("Status", width=200)
-        self.tree.pack(side="left", fill="both", expand=True)
-
-        scrollbar = ctk.CTkScrollbar(tree_container, orientation="vertical", command=self.tree.yview)
-        scrollbar.pack(side="right", fill="y")
-        self.tree.configure(yscrollcommand=scrollbar.set)
-
         dl_frame = ctk.CTkFrame(list_frame, fg_color="transparent")
-        dl_frame.pack(fill="x", padx=20, pady=(10, 20))
+        dl_frame.pack(side="bottom", fill="x", padx=20, pady=(10, 20))
 
         self.dl_btn = ctk.CTkButton(dl_frame, text="Standard Download", width=190, height=40, font=ctk.CTkFont(weight="bold"), command=lambda: self.download_trigger(False))
         self.dl_btn.pack(side="left", padx=5)
@@ -108,13 +99,21 @@ class P2PApp(ctk.CTk):
         self.sdl_btn = ctk.CTkButton(dl_frame, text="Secure Download (DES)", width=210, height=40, fg_color="#6f42c1", hover_color="#59369c", font=ctk.CTkFont(weight="bold"), command=lambda: self.download_trigger(True))
         self.sdl_btn.pack(side="left", padx=5)
 
-        bottom_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
-        bottom_frame.pack(fill="x", padx=10, pady=(0, 10))
+        tree_container = ctk.CTkFrame(list_frame, fg_color="transparent")
+        tree_container.pack(side="top", fill="both", expand=True, padx=20, pady=5)
 
-        self.stat_msg = ctk.StringVar(value="System Ready")
-        ctk.CTkLabel(bottom_frame, textvariable=self.stat_msg, text_color="gray", font=('Segoe UI', 11)).pack(side="left", padx=10)
+        self.tree = ttk.Treeview(tree_container, columns=("Content", "Users", "Status"), show='headings', height=5)
+        self.tree.heading("Content", text="File Name")
+        self.tree.heading("Users", text="User(s)")
+        self.tree.heading("Status", text="Availability")
+        self.tree.column("Content", width=250)
+        self.tree.column("Users", width=200)
+        self.tree.column("Status", width=150)
+        self.tree.pack(side="left", fill="both", expand=True)
 
-        ctk.CTkButton(bottom_frame, text="View Logs", width=120, height=32, fg_color="transparent", border_width=1, text_color="gray", command=self.open_logs).pack(side="right", padx=10)
+        scrollbar = ctk.CTkScrollbar(tree_container, orientation="vertical", command=self.tree.yview)
+        scrollbar.pack(side="right", fill="y")
+        self.tree.configure(yscrollcommand=scrollbar.set)
 
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -139,7 +138,7 @@ class P2PApp(ctk.CTk):
             return
         try:
             self.dl_path = self.dl_path_ent.get().strip() or os.getcwd()
-            self.peer = PeerNode(username=u, file_path=p)
+            self.peer = PeerNode(username=u, file_path=p, dl_path=self.dl_path)
             self.peer.start()
             self.start_btn.configure(state="disabled", text="ONLINE", fg_color="#4b4b4b")
             self.stop_btn.configure(state="normal", fg_color="#dc3545")
@@ -159,12 +158,19 @@ class P2PApp(ctk.CTk):
     def auto_update(self):
         if not self.peer: return
         [self.tree.delete(i) for i in self.tree.get_children()]
-        files = {}
-        for chunk in self.peer.content_dict:
+        files_chunks = {}
+        files_users = {}
+        for chunk, users in self.peer.content_dict.items():
             name = chunk.rsplit('_', 1)[0]
-            files[name] = files.get(name, 0) + 1
-        for name, count in files.items():
-            self.tree.insert("", "end", values=(name, f"{count}/3 Chunks"))
+            files_chunks[name] = files_chunks.get(name, 0) + 1
+            if name not in files_users:
+                files_users[name] = set()
+            files_users[name].update(users)
+            
+        for name in files_chunks.keys():
+            count = files_chunks[name]
+            users_str = ", ".join(sorted(list(files_users[name])))
+            self.tree.insert("", "end", values=(name, users_str, f"{count}/3 Chunks"))
         self.after(5000, self.auto_update)
 
     def download_trigger(self, is_secure):
@@ -179,9 +185,16 @@ class P2PApp(ctk.CTk):
             needed_chunks = sorted([c for c in self.peer.content_dict if c.startswith(fname + "_")])
             downloaded_data = {}
             for chunk_name in needed_chunks:
-                ips = self.peer.content_dict.get(chunk_name, [])
+                users = self.peer.content_dict.get(chunk_name, [])
                 success = False
-                for ip in ips:
+                for user in users:
+                    ip = self.peer.username_to_ip.get(user)
+                    if not ip: continue
+                    
+                    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+                    self.stat_msg.set(f"[{ts}] Requesting {chunk_name} from {user}")
+                    self.update_idletasks()
+                    
                     try:
                         data = self.peer._download_secure_chunk(ip, chunk_name) if is_secure else self.peer._download_unsecure_chunk(ip, chunk_name)
                         if data:
@@ -189,8 +202,14 @@ class P2PApp(ctk.CTk):
                             chunk_path = os.path.join(self.dl_path, chunk_name)
                             with open(chunk_path, 'wb') as cf: cf.write(data)
                             success = True; break
-                    except: continue
-                if not success: raise Exception(f"Failed {chunk_name}")
+                        else:
+                            print(f"Chunk {chunk_name} cannot be downloaded from {user}")
+                    except:
+                        print(f"Chunk {chunk_name} cannot be downloaded from {user}")
+                        continue
+                if not success: 
+                    print(f"CHUNK {chunk_name} CANNOT BE DOWNLOADED FROM ONLINE PEERS.")
+                    raise Exception(f"Failed {chunk_name}")
             output_path = os.path.join(self.dl_path, fname)
             with open(output_path, 'wb') as f:
                 for key in sorted(downloaded_data.keys()): f.write(downloaded_data[key])

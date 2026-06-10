@@ -46,7 +46,7 @@ def _get_broadcast_addr():
     return '255.255.255.255'
 
 class PeerNode:
-    def __init__(self, username=None, file_path=None):
+    def __init__(self, username=None, file_path=None, dl_path=None):
         self.username = username or input("Enter your username: ").strip()
         if not self.username:
             raise ValueError("Username cannot be empty")
@@ -59,6 +59,7 @@ class PeerNode:
         if not os.path.exists(self.file_path):
             raise FileNotFoundError(f"File not found: {self.file_path}")
 
+        self.dl_path = dl_path or os.getcwd()
         self.file_name = os.path.basename(self.file_path)
         self.chunks = self._split_file_into_chunks()
         print(f"Split '{self.file_name}' into {len(self.chunks)} chunks")
@@ -81,12 +82,19 @@ class PeerNode:
         if len(data) % 3 != 0:
             chunk_size += 1
 
+        base_name, _ = os.path.splitext(self.file_name)
         chunks = []
         for i in range(3):
             start = i * chunk_size
             end = start + chunk_size
-            chunk_name = f"{self.file_name}_{i + 1}"
-            chunks.append((chunk_name, data[start:end]))
+            chunk_name = f"{base_name}_{i + 1}"
+            chunk_data = data[start:end]
+            chunks.append((chunk_name, chunk_data))
+            
+            # Store them as separate files locally immediately as per specification
+            with open(chunk_name, 'wb') as chunk_file:
+                chunk_file.write(chunk_data)
+                
         return chunks
 
     def start(self):
@@ -94,7 +102,6 @@ class PeerNode:
         self.threads = [
             threading.Thread(target=self._chunk_announcer, daemon=True, name="ChunkAnnouncer"),
             threading.Thread(target=self._content_discovery, daemon=True, name="ContentDiscovery"),
-            threading.Thread(target=self._chunk_downloader, daemon=True, name="ChunkDownloader"),
             threading.Thread(target=self._chunk_uploader, daemon=True, name="ChunkUploader"),
             threading.Thread(target=self._dictionary_wiper, daemon=True, name="DictionaryWiper"),
         ]
@@ -114,10 +121,17 @@ class PeerNode:
         broadcast_addr = (_get_broadcast_addr(), 6000)
 
         while self.running:
-            chunk_names = [chunk[0] for chunk in self.chunks]
+            chunk_names = set([chunk[0] for chunk in self.chunks])
+            
+            # Scan for altruistic chunks
+            if os.path.exists(self.dl_path):
+                for f in os.listdir(self.dl_path):
+                    if f.endswith('_1') or f.endswith('_2') or f.endswith('_3'):
+                        chunk_names.add(f)
+
             payload = json.dumps({
                 "username": self.username,
-                "chunks": chunk_names
+                "chunks": list(chunk_names)
             })
 
             try:
@@ -143,17 +157,19 @@ class PeerNode:
                 if peer_username == self.username:
                     continue
 
-                prev_username = self.ip_to_username.get(addr[0])
-                if prev_username != peer_username:
-                    self.ip_to_username[addr[0]] = peer_username
-                    self.username_to_ip[peer_username] = addr[0]
-                    print(f"[DISCOVERY] {peer_username} {', '.join(peer_chunks)}")
+                self.ip_to_username[addr[0]] = peer_username
+                self.username_to_ip[peer_username] = addr[0]
 
+                new_chunks_added = False
                 for chunk in peer_chunks:
                     if chunk not in self.content_dict:
                         self.content_dict[chunk] = []
-                    if addr[0] not in self.content_dict[chunk]:
-                        self.content_dict[chunk].append(addr[0])
+                    if peer_username not in self.content_dict[chunk]:
+                        self.content_dict[chunk].append(peer_username)
+                        new_chunks_added = True
+                        
+                if new_chunks_added:
+                    print(f"[DISCOVERY] {peer_username} : {', '.join(peer_chunks)}")
 
             except socket.timeout:
                 continue
@@ -256,9 +272,10 @@ class PeerNode:
             if chunk_tuple[0] == chunk_name:
                 return chunk_tuple[1]
 
-        if os.path.exists(chunk_name) and os.path.isfile(chunk_name):
+        chunk_path = os.path.join(self.dl_path, chunk_name)
+        if os.path.exists(chunk_path) and os.path.isfile(chunk_path):
             try:
-                with open(chunk_name, 'rb') as f:
+                with open(chunk_path, 'rb') as f:
                     return f.read()
             except Exception as e:
                 print(f"[UPLOADER] Error reading altruistic chunk {chunk_name}: {e}")
@@ -312,128 +329,6 @@ class PeerNode:
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
         with open(self.upload_log_file, "a") as f:
             f.write(f"[{timestamp}] {chunk_name} {recipient_name} SENT\n")
-
-    def _chunk_downloader(self):
-        while self.running:
-            time.sleep(1)
-
-    def _interactive_menu(self):
-        while self.running:
-            print("\n=== P2P File Sharing ===")
-            print("1. List available content")
-            print("2. List discovered peers")
-            print("3. Download file (unsecure)")
-            print("4. Download file (secure)")
-            print("5. View download log")
-            print("6. View upload log")
-            print("7. Exit")
-            print("======================")
-
-            choice = input("Enter choice: ").strip()
-
-            if choice == "1":
-                self._list_content()
-            elif choice == "2":
-                self._list_peers()
-            elif choice == "3":
-                self._download_file(secure=False)
-            elif choice == "4":
-                self._download_file(secure=True)
-            elif choice == "5":
-                self._view_log(self.download_log_file)
-            elif choice == "6":
-                self._view_log(self.upload_log_file)
-            elif choice == "7":
-                self.stop()
-                break
-
-    def _list_content(self):
-        print("\n=== Available Content ===")
-        if not self.content_dict:
-            print("No content discovered yet.")
-            return
-
-        content_groups = {}
-        for chunk in self.content_dict:
-            base_name = chunk.rsplit('_', 1)[0]
-            if base_name not in content_groups:
-                content_groups[base_name] = []
-            content_groups[base_name].append(chunk)
-
-        for name, chunks in sorted(content_groups.items()):
-            print(f"  {name}")
-
-    def _list_peers(self):
-        print("\n=== Discovered Peers ===")
-        if not self.username_to_ip:
-            print("No peers discovered yet.")
-            return
-
-        for username, ip in self.username_to_ip.items():
-            print(f"  {username} @ {ip}")
-
-    def _download_file(self, secure=False):
-        if not self.content_dict:
-            print("No content available.")
-            return
-
-        content_groups = {}
-        for chunk in self.content_dict:
-            base_name = chunk.rsplit('_', 1)[0]
-            if base_name not in content_groups:
-                content_groups[base_name] = []
-            content_groups[base_name].append(chunk)
-
-        print("\nSelect a file to download:")
-        file_list = sorted(content_groups.keys())
-        for i, name in enumerate(file_list, 1):
-            print(f"  {i}. {name}")
-
-        try:
-            selection = int(input("Enter number: ")) - 1
-            file_name = file_list[selection]
-        except (ValueError, IndexError):
-            print("Invalid selection.")
-            return
-
-        chunks_needed = sorted(content_groups[file_name])
-        print(f"Downloading {file_name} ({len(chunks_needed)} chunks)...")
-
-        downloaded_chunks = {}
-
-        for chunk_name in chunks_needed:
-            available_ips = self.content_dict.get(chunk_name, [])
-            success = False
-
-            for ip in available_ips:
-                try:
-                    if secure:
-                        chunk_data = self._download_secure_chunk(ip, chunk_name)
-                    else:
-                        chunk_data = self._download_unsecure_chunk(ip, chunk_name)
-
-                    if chunk_data:
-                        downloaded_chunks[chunk_name] = chunk_data
-
-                        with open(chunk_name, 'wb') as chunk_file:
-                            chunk_file.write(chunk_data)
-
-                        print(f"  Received {chunk_name} from {ip}")
-                        success = True
-                        break
-                except Exception as e:
-                    continue
-
-            if not success:
-                print(f"  Failed to download {chunk_name}")
-                return
-
-        output_path = os.path.join(os.getcwd(), file_name)
-        with open(output_path, 'wb') as f:
-            for chunk_name in sorted(downloaded_chunks.keys()):
-                f.write(downloaded_chunks[chunk_name])
-
-        print(f"Saved as {output_path}")
 
     def _download_unsecure_chunk(self, ip, chunk_name):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -527,14 +422,6 @@ class PeerNode:
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
         with open(self.download_log_file, "a") as f:
             f.write(f"[{timestamp}] {chunk_name} {ip} RECEIVED\n")
-
-    def _view_log(self, filename):
-        print(f"\n=== {filename} ===")
-        if os.path.exists(filename):
-            with open(filename, 'r') as f:
-                print(f.read())
-        else:
-            print("(Log file does not exist)")
 
     def stop(self):
         print("\nShutting down...")

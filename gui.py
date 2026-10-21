@@ -4,12 +4,7 @@ import threading
 import os
 import time
 
-import importlib.util
-_backend_path = os.path.join(os.path.dirname(__file__), '[git commit -m]_p2p_file_sharing.py')
-_spec = importlib.util.spec_from_file_location('p2p_backend', _backend_path)
-_backend_mod = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_backend_mod)
-PeerNode = _backend_mod.PeerNode
+from p2p_file_sharing import PeerNode
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
